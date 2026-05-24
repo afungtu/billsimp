@@ -12,7 +12,7 @@
 // All AI math is in: src/utils/aiPredictions.js
 // ═══════════════════════════════════════════════════════════════
 
-import React, { useEffect, useState } from "react";
+import React, { Component, useEffect, useState } from "react";
 import {
   AreaChart, Area,
   BarChart, Bar,
@@ -41,7 +41,63 @@ import { formatCurrency } from "../utils/helpers";
 
 import "../styles/analytics.css";
 
+// ── Chart color constants ───────────────────────────────────────
+// IMPORTANT: recharts renders inside SVG. CSS variables (var(--x))
+// do NOT resolve inside SVG attributes on mobile browsers.
+// Always use hardcoded hex values here — they match global.css tokens.
+const CH = {
+  border:      "#1e2d4a",   // --border
+  borderLight: "#253352",   // --border-light
+  textMuted:   "#4d6380",   // --text-muted
+  blue:        "#3b82f6",   // --accent
+  green:       "#10b981",   // --success
+  purple:      "#8b5cf6",   // --purple
+  amber:       "#f59e0b",   // --warning
+  danger:      "#ef4444",   // --danger
+};
 
+
+// ── Error Boundary ──────────────────────────────────────────────
+// Catches any render crash and shows a message instead of blank screen.
+class AnalyticsErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, info) {
+    console.error("Analytics render crash:", error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <AppLayout title="Analytics & AI">
+          <div style={{ padding: "40px 0", textAlign: "center" }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
+            <div style={{ fontSize: 16, fontWeight: 600, color: "#ef4444", marginBottom: 8 }}>
+              Analytics failed to render
+            </div>
+            <div style={{ fontSize: 13, color: "#8fa3c0", marginBottom: 20, maxWidth: 400, margin: "0 auto 20px" }}>
+              {this.state.error?.message || "An unexpected error occurred while building the charts."}
+            </div>
+            <button
+              className="btn btn-primary"
+              onClick={() => { this.setState({ hasError: false }); window.location.reload(); }}
+            >
+              Reload Analytics
+            </button>
+          </div>
+        </AppLayout>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+
+// ── Custom tooltip ──────────────────────────────────────────────
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
@@ -49,7 +105,7 @@ function ChartTooltip({ active, payload, label }) {
       <p className="chart-tooltip-label">{label}</p>
       {payload.map((p, i) => (
         <p key={i} className="chart-tooltip-value" style={{ color: p.color }}>
-          {p.name}: ${p.value?.toLocaleString()}
+          {p.name}: ${(p.value || 0).toLocaleString()}
         </p>
       ))}
     </div>
@@ -57,23 +113,23 @@ function ChartTooltip({ active, payload, label }) {
 }
 
 
-export default function Analytics() {
+// ── Main analytics page ─────────────────────────────────────────
+function AnalyticsContent() {
   const { currentUser } = useAuth();
 
   const [invoices, setInvoices] = useState([]);
-  const [clients,  setClients]  = useState([]);
   const [loading,  setLoading]  = useState(true);
 
-  const [monthlyData, setMonthlyData] = useState([]);
-  const [prediction,  setPrediction]  = useState(null);
-  const [topClients,  setTopClients]  = useState([]);
-  const [insights,    setInsights]    = useState([]);
-  const [statusData,       setStatusData]       = useState([]);
-  const [forecastData,     setForecastData]     = useState([]);
-  const [growthRates,      setGrowthRates]      = useState([]);
-  const [paymentBehavior,  setPaymentBehavior]  = useState([]);
-  const [serviceBreakdown, setServiceBreakdown] = useState([]);
-  const [loadError,        setLoadError]        = useState(null);
+  const [monthlyData,      setMonthlyData]      = useState([]);
+  const [prediction,       setPrediction]        = useState(null);
+  const [topClients,       setTopClients]        = useState([]);
+  const [insights,         setInsights]          = useState([]);
+  const [statusData,       setStatusData]        = useState([]);
+  const [forecastData,     setForecastData]      = useState([]);
+  const [growthRates,      setGrowthRates]       = useState([]);
+  const [paymentBehavior,  setPaymentBehavior]   = useState([]);
+  const [serviceBreakdown, setServiceBreakdown]  = useState([]);
+  const [loadError,        setLoadError]         = useState(null);
 
   useEffect(() => {
     if (!currentUser?.uid) return;
@@ -88,7 +144,6 @@ export default function Analytics() {
         ]);
 
         setInvoices(inv);
-        setClients(cl);
 
         const monthly = groupRevenueByMonth(inv);
         setMonthlyData(monthly);
@@ -105,9 +160,9 @@ export default function Analytics() {
         const count = { paid: 0, pending: 0, overdue: 0, draft: 0 };
         inv.forEach((i) => { if (count[i.status] !== undefined) count[i.status]++; });
         setStatusData([
-          { name: "Paid",    value: count.paid,    color: "#10b981" },
-          { name: "Pending", value: count.pending, color: "#f59e0b" },
-          { name: "Overdue", value: count.overdue, color: "#ef4444" },
+          { name: "Paid",    value: count.paid,    color: CH.green  },
+          { name: "Pending", value: count.pending, color: CH.amber  },
+          { name: "Overdue", value: count.overdue, color: CH.danger },
           { name: "Draft",   value: count.draft,   color: "#4d6380" },
         ]);
 
@@ -126,18 +181,16 @@ export default function Analytics() {
     load();
   }, [currentUser?.uid]);
 
+  // Computed KPI values
   const totalRevenue = invoices
     .filter((i) => i.status === "paid")
     .reduce((s, i) => s + (parseFloat(i.total) || 0), 0);
 
   const totalBilled = invoices.reduce((s, i) => s + (parseFloat(i.total) || 0), 0);
-
-  const collectionRate = totalBilled > 0
-    ? Math.round((totalRevenue / totalBilled) * 100)
-    : 0;
-
+  const collectionRate = totalBilled > 0 ? Math.round((totalRevenue / totalBilled) * 100) : 0;
   const avgInvoice = invoices.length > 0 ? totalBilled / invoices.length : 0;
 
+  // ── Loading skeleton ──────────────────────────────────────────
   if (loading) {
     return (
       <AppLayout title="Analytics & AI">
@@ -150,19 +203,22 @@ export default function Analytics() {
     );
   }
 
+  // ── Firebase / Firestore error ────────────────────────────────
   if (loadError) {
     return (
       <AppLayout title="Analytics & AI">
         <div style={{ padding: "40px 0" }}>
           <div className="alert alert-error" style={{ maxWidth: 600 }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
             </svg>
             <div>
               <strong>Analytics failed to load</strong>
               <div style={{ fontSize: 12, marginTop: 4, opacity: 0.85 }}>{loadError}</div>
               <div style={{ fontSize: 12, marginTop: 4, opacity: 0.7 }}>
-                If this says "index" — open the Firebase Console → Firestore → Indexes and create the missing index, or check your browser Console (F12) for a direct link.
+                If this says "index" — open Firebase Console → Firestore → Indexes to create the missing index.
               </div>
             </div>
           </div>
@@ -174,10 +230,13 @@ export default function Analytics() {
     );
   }
 
+  // ── Divider index for forecast chart ─────────────────────────
+  const forecastStartIdx = forecastData.findIndex((d) => d.isForecast);
+
   return (
     <AppLayout title="Analytics & AI">
 
-      {/* Intro Banner */}
+      {/* ── Intro Banner ────────────────────────────────────── */}
       <div className="analytics-intro">
         <div className="analytics-intro-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -193,7 +252,7 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* KPI Cards */}
+      {/* ── KPI Cards ───────────────────────────────────────── */}
       <div className="analytics-kpi-grid">
         <div className="stat-card blue">
           <div className="stat-header">
@@ -253,7 +312,7 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* Charts */}
+      {/* ── Revenue + Status Charts ──────────────────────────── */}
       <div className="analytics-charts-grid">
         <div className="chart-card">
           <div className="chart-card-header">
@@ -269,14 +328,14 @@ export default function Analytics() {
                 <span>No monthly data yet.<br/>Create invoices across different months.</span>
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height={220}>
+              <ResponsiveContainer width="100%" height={220} minWidth={0}>
                 <AreaChart data={monthlyData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="month" tick={{ fill: "var(--text-muted)", fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: "var(--text-muted)", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={CH.border} vertical={false} />
+                  <XAxis dataKey="month" tick={{ fill: CH.textMuted, fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: CH.textMuted, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Area type="monotone" dataKey="total" name="Billed" stroke="#3b82f6" fill="rgba(59,130,246,0.12)" strokeWidth={2} />
-                  <Area type="monotone" dataKey="paid"  name="Paid"   stroke="#10b981" fill="rgba(16,185,129,0.10)" strokeWidth={2} />
+                  <Area type="monotone" dataKey="total" name="Billed" stroke={CH.blue}  fill="rgba(59,130,246,0.12)" strokeWidth={2} />
+                  <Area type="monotone" dataKey="paid"  name="Paid"   stroke={CH.green} fill="rgba(16,185,129,0.10)" strokeWidth={2} />
                 </AreaChart>
               </ResponsiveContainer>
             )}
@@ -304,11 +363,11 @@ export default function Analytics() {
                 <span>No invoices to analyze yet.</span>
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height={220}>
+              <ResponsiveContainer width="100%" height={220} minWidth={0}>
                 <BarChart data={statusData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fill: "var(--text-muted)", fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <YAxis allowDecimals={false} tick={{ fill: "var(--text-muted)", fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={CH.border} vertical={false} />
+                  <XAxis dataKey="name" tick={{ fill: CH.textMuted, fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fill: CH.textMuted, fontSize: 11 }} axisLine={false} tickLine={false} />
                   <Tooltip content={({ active, payload, label }) =>
                     active && payload?.length ? (
                       <div className="chart-tooltip">
@@ -327,7 +386,7 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* AI Prediction Panel */}
+      {/* ── AI Prediction Panel ──────────────────────────────── */}
       {prediction && (
         <div className="ai-panel">
           <div className="ai-panel-header">
@@ -383,7 +442,7 @@ export default function Analytics() {
         </div>
       )}
 
-      {/* Top Clients */}
+      {/* ── Top Clients Table ────────────────────────────────── */}
       <div className="top-clients-section">
         <div className="card-header">
           <span className="card-title">Top Clients by Revenue</span>
@@ -412,13 +471,14 @@ export default function Analytics() {
               <tbody>
                 {topClients.map((c, i) => {
                   const share = totalBilled > 0 ? (c.total / totalBilled) * 100 : 0;
+                  const initial = (c.clientName || "?")[0].toUpperCase();
                   return (
                     <tr key={c.clientId || i}>
                       <td className="rank-number">#{i + 1}</td>
                       <td>
                         <div className="client-name-cell">
-                          <div className="client-avatar-small">{c.clientName[0].toUpperCase()}</div>
-                          <span className="td-main">{c.clientName}</span>
+                          <div className="client-avatar-small">{initial}</div>
+                          <span className="td-main">{c.clientName || "Unknown"}</span>
                         </div>
                       </td>
                       <td>{c.count}</td>
@@ -441,8 +501,8 @@ export default function Analytics() {
         )}
       </div>
 
-      {/* Revenue Forecast Chart */}
-      <div className="chart-card" style={{ marginBottom: 24 }}>
+      {/* ── Revenue Forecast Chart ───────────────────────────── */}
+      <div className="chart-card" style={{ marginBottom: 24, marginTop: 24 }}>
         <div className="chart-card-header">
           <div className="chart-card-title">Revenue Forecast — Next 3 Months</div>
           <div className="chart-card-subtitle">
@@ -459,15 +519,17 @@ export default function Analytics() {
             </div>
           ) : (
             <>
-              <ResponsiveContainer width="100%" height={240}>
+              <ResponsiveContainer width="100%" height={240} minWidth={0}>
                 <ComposedChart data={forecastData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="month" tick={{ fill: "var(--text-muted)", fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: "var(--text-muted)", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={CH.border} vertical={false} />
+                  <XAxis dataKey="month" tick={{ fill: CH.textMuted, fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: CH.textMuted, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
                   <Tooltip content={({ active, payload, label }) =>
                     active && payload?.length ? (
                       <div className="chart-tooltip">
-                        <p className="chart-tooltip-label">{label}{payload[0]?.payload?.isForecast ? " (forecast)" : ""}</p>
+                        <p className="chart-tooltip-label">
+                          {label}{payload[0]?.payload?.isForecast ? " (forecast)" : ""}
+                        </p>
                         {payload.map((p, i) => (
                           <p key={i} className="chart-tooltip-value" style={{ color: p.color }}>
                             {p.name}: ${(p.value || 0).toLocaleString()}
@@ -476,17 +538,16 @@ export default function Analytics() {
                       </div>
                     ) : null
                   } />
-                  {/* Divider between historical and forecast */}
-                  {forecastData.findIndex((d) => d.isForecast) > 0 && (
+                  {forecastStartIdx > 0 && (
                     <ReferenceLine
-                      x={forecastData[forecastData.findIndex((d) => d.isForecast) - 1]?.month}
-                      stroke="rgba(139,92,246,0.4)"
+                      x={forecastData[forecastStartIdx - 1]?.month}
+                      stroke="rgba(139,92,246,0.5)"
                       strokeDasharray="4 4"
-                      label={{ value: "now", fill: "var(--text-muted)", fontSize: 10 }}
+                      label={{ value: "now", fill: CH.textMuted, fontSize: 10 }}
                     />
                   )}
-                  <Area type="monotone" dataKey="actual"   name="Actual"   stroke="#3b82f6" fill="rgba(59,130,246,0.10)" strokeWidth={2} connectNulls />
-                  <Line type="monotone" dataKey="forecast" name="Forecast" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="6 4" dot={{ fill: "#8b5cf6", r: 4 }} connectNulls />
+                  <Area type="monotone" dataKey="actual"   name="Actual"   stroke={CH.blue}   fill="rgba(59,130,246,0.10)" strokeWidth={2} connectNulls />
+                  <Line type="monotone" dataKey="forecast" name="Forecast" stroke={CH.purple} strokeWidth={2} strokeDasharray="6 4" dot={{ fill: CH.purple, r: 4 }} connectNulls />
                 </ComposedChart>
               </ResponsiveContainer>
               <div className="chart-legend">
@@ -498,7 +559,7 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* Monthly Growth Rates */}
+      {/* ── Monthly Growth Rate Chart ────────────────────────── */}
       {growthRates.length > 0 && (
         <div className="chart-card" style={{ marginBottom: 24 }}>
           <div className="chart-card-header">
@@ -506,25 +567,25 @@ export default function Analytics() {
             <div className="chart-card-subtitle">Income trend analysis — % change each month</div>
           </div>
           <div className="chart-body">
-            <ResponsiveContainer width="100%" height={200}>
+            <ResponsiveContainer width="100%" height={200} minWidth={0}>
               <BarChart data={growthRates} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                <XAxis dataKey="month" tick={{ fill: "var(--text-muted)", fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: "var(--text-muted)", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}%`} />
+                <CartesianGrid strokeDasharray="3 3" stroke={CH.border} vertical={false} />
+                <XAxis dataKey="month" tick={{ fill: CH.textMuted, fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: CH.textMuted, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}%`} />
                 <Tooltip content={({ active, payload, label }) =>
                   active && payload?.length ? (
                     <div className="chart-tooltip">
                       <p className="chart-tooltip-label">{label}</p>
-                      <p className="chart-tooltip-value" style={{ color: payload[0]?.value >= 0 ? "var(--success)" : "var(--danger)" }}>
+                      <p className="chart-tooltip-value" style={{ color: payload[0]?.value >= 0 ? CH.green : CH.danger }}>
                         Growth: {payload[0]?.value >= 0 ? "+" : ""}{payload[0]?.value}%
                       </p>
                     </div>
                   ) : null
                 } />
-                <ReferenceLine y={0} stroke="var(--border-light)" />
+                <ReferenceLine y={0} stroke={CH.borderLight} />
                 <Bar dataKey="growth" name="Growth %" radius={[4, 4, 0, 0]}>
                   {growthRates.map((entry, i) => (
-                    <Cell key={i} fill={entry.growth >= 0 ? "#10b981" : "#ef4444"} fillOpacity={0.8} />
+                    <Cell key={i} fill={entry.growth >= 0 ? CH.green : CH.danger} fillOpacity={0.8} />
                   ))}
                 </Bar>
               </BarChart>
@@ -533,7 +594,7 @@ export default function Analytics() {
         </div>
       )}
 
-      {/* Client Payment Behavior */}
+      {/* ── Client Payment Behaviour Table ──────────────────── */}
       <div className="top-clients-section" style={{ marginBottom: 24 }}>
         <div className="card-header">
           <span className="card-title">Client Payment Behaviour</span>
@@ -565,39 +626,47 @@ export default function Analytics() {
                 </tr>
               </thead>
               <tbody>
-                {paymentBehavior.map((c, i) => (
-                  <tr key={i}>
-                    <td>
-                      <div className="client-name-cell">
-                        <div className="client-avatar-small">{c.clientName[0].toUpperCase()}</div>
-                        <span className="td-main">{c.clientName}</span>
-                      </div>
-                    </td>
-                    <td>{c.count}</td>
-                    <td style={{ color: "var(--success)", fontWeight: 600 }}>{c.paid}</td>
-                    <td style={{ color: c.overdue > 0 ? "var(--danger)" : "var(--text-muted)", fontWeight: c.overdue > 0 ? 600 : 400 }}>{c.overdue}</td>
-                    <td>
-                      <div className="share-bar-wrap">
-                        <div className="share-bar-track">
-                          <div className="share-bar-fill" style={{ width: `${c.paymentRate}%`, background: c.paymentRate >= 80 ? "var(--success)" : c.paymentRate >= 50 ? "var(--warning)" : "var(--danger)" }} />
+                {paymentBehavior.map((c, i) => {
+                  const barColor = c.paymentRate >= 80 ? CH.green : c.paymentRate >= 50 ? CH.amber : CH.danger;
+                  const initial  = (c.clientName || "?")[0].toUpperCase();
+                  return (
+                    <tr key={i}>
+                      <td>
+                        <div className="client-name-cell">
+                          <div className="client-avatar-small">{initial}</div>
+                          <span className="td-main">{c.clientName || "Unknown"}</span>
                         </div>
-                        <span className="share-pct">{c.paymentRate}%</span>
-                      </div>
-                    </td>
-                    <td>
-                      <span className={`badge ${c.rating === "excellent" ? "badge-paid" : c.rating === "good" ? "badge-sent" : c.rating === "fair" ? "badge-pending" : "badge-overdue"}`}>
-                        {c.rating}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td>{c.count}</td>
+                      <td style={{ color: CH.green, fontWeight: 600 }}>{c.paid}</td>
+                      <td style={{ color: c.overdue > 0 ? CH.danger : CH.textMuted, fontWeight: c.overdue > 0 ? 600 : 400 }}>{c.overdue}</td>
+                      <td>
+                        <div className="share-bar-wrap">
+                          <div className="share-bar-track">
+                            <div className="share-bar-fill" style={{ width: `${c.paymentRate}%`, background: barColor }} />
+                          </div>
+                          <span className="share-pct">{c.paymentRate}%</span>
+                        </div>
+                      </td>
+                      <td>
+                        <span className={`badge ${
+                          c.rating === "excellent" ? "badge-paid"    :
+                          c.rating === "good"      ? "badge-sent"    :
+                          c.rating === "fair"      ? "badge-pending" : "badge-overdue"
+                        }`}>
+                          {c.rating}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
-      {/* Service / Product Breakdown */}
+      {/* ── Top Services Table ───────────────────────────────── */}
       {serviceBreakdown.length > 0 && (
         <div className="top-clients-section">
           <div className="card-header">
@@ -617,8 +686,8 @@ export default function Analytics() {
               </thead>
               <tbody>
                 {serviceBreakdown.map((s, i) => {
-                  const totalServiceRevenue = serviceBreakdown.reduce((a, b) => a + b.revenue, 0);
-                  const share = totalServiceRevenue > 0 ? (s.revenue / totalServiceRevenue) * 100 : 0;
+                  const totalSvcRev = serviceBreakdown.reduce((a, b) => a + b.revenue, 0);
+                  const share = totalSvcRev > 0 ? (s.revenue / totalSvcRev) * 100 : 0;
                   return (
                     <tr key={i}>
                       <td className="rank-number">#{i + 1}</td>
@@ -628,7 +697,7 @@ export default function Analytics() {
                       <td>
                         <div className="share-bar-wrap">
                           <div className="share-bar-track">
-                            <div className="share-bar-fill" style={{ width: `${Math.min(share, 100)}%`, background: "var(--purple)" }} />
+                            <div className="share-bar-fill" style={{ width: `${Math.min(share, 100)}%`, background: CH.purple }} />
                           </div>
                           <span className="share-pct">{Math.round(share)}%</span>
                         </div>
@@ -643,5 +712,15 @@ export default function Analytics() {
       )}
 
     </AppLayout>
+  );
+}
+
+
+// ── Default export wrapped in error boundary ────────────────────
+export default function Analytics() {
+  return (
+    <AnalyticsErrorBoundary>
+      <AnalyticsContent />
+    </AnalyticsErrorBoundary>
   );
 }
