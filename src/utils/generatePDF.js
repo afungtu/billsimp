@@ -1,0 +1,233 @@
+// src/utils/generatePDF.js
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+
+export function generateInvoicePDF(invoice, client, companyName = "Billsimp") {
+  const doc = new jsPDF();
+  const pageW = doc.internal.pageSize.getWidth();
+
+  doc.setFillColor(15, 23, 42);
+  doc.rect(0, 0, pageW, 45, "F");
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(22);
+  doc.setTextColor(255, 255, 255);
+  doc.text(companyName.toUpperCase(), 14, 20);
+
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(148, 163, 184);
+  doc.text("INVOICE", 14, 30);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(99, 179, 237);
+  doc.text(`#${invoice.invoiceNumber}`, pageW - 14, 20, { align: "right" });
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(148, 163, 184);
+  doc.text(`Date: ${invoice.date}`, pageW - 14, 28, { align: "right" });
+  if (invoice.dueDate) {
+    doc.text(`Due: ${invoice.dueDate}`, pageW - 14, 35, { align: "right" });
+  }
+
+  doc.setTextColor(15, 23, 42);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text("BILL TO", 14, 58);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  doc.setTextColor(15, 23, 42);
+  doc.text(client?.name || invoice.clientName || "—", 14, 66);
+
+  doc.setFontSize(9);
+  doc.setTextColor(71, 85, 105);
+  let yPos = 72;
+  if (client?.company) { doc.text(client.company, 14, yPos); yPos += 6; }
+  if (client?.email)   { doc.text(client.email,   14, yPos); yPos += 6; }
+  if (client?.phone)   { doc.text(client.phone,   14, yPos); yPos += 6; }
+  if (client?.address) {
+    const lines = doc.splitTextToSize(client.address, 80);
+    doc.text(lines, 14, yPos);
+    yPos += lines.length * 5;
+  }
+
+  const statusColors = {
+    paid:    [34, 197, 94],
+    pending: [234, 179, 8],
+    overdue: [239, 68, 68],
+    draft:   [148, 163, 184],
+  };
+  const status = invoice.status || "pending";
+  const [r, g, b] = statusColors[status] || statusColors.pending;
+  doc.setFillColor(r, g, b);
+  doc.roundedRect(pageW - 45, 53, 31, 10, 2, 2, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.text(status.toUpperCase(), pageW - 29.5, 60, { align: "center" });
+
+  const items = invoice.items || [];
+  const tableStart = Math.max(yPos + 8, 100);
+
+  autoTable(doc, {
+    startY: tableStart,
+    head: [["#", "Description", "Qty", "Unit Price", "Total"]],
+    body: items.map((item, i) => [
+      i + 1,
+      item.description,
+      item.quantity,
+      `${invoice.currency || "$"}${parseFloat(item.price).toFixed(2)}`,
+      `${invoice.currency || "$"}${(parseFloat(item.quantity) * parseFloat(item.price)).toFixed(2)}`,
+    ]),
+    headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 9 },
+    bodyStyles: { fontSize: 9, textColor: [30, 41, 59] },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    columnStyles: {
+      0: { cellWidth: 10, halign: "center" },
+      2: { halign: "center", cellWidth: 20 },
+      3: { halign: "right",  cellWidth: 30 },
+      4: { halign: "right",  cellWidth: 30 },
+    },
+    styles: { lineColor: [226, 232, 240], lineWidth: 0.1 },
+  });
+
+  const finalY = doc.lastAutoTable.finalY + 8;
+  const subtotal = items.reduce((s, i) => s + parseFloat(i.quantity) * parseFloat(i.price), 0);
+  const taxRate  = parseFloat(invoice.taxRate) || 0;
+  const tax      = subtotal * (taxRate / 100);
+  const total    = subtotal + tax;
+  const curr     = invoice.currency || "$";
+
+  const col1 = pageW - 70;
+  const col2 = pageW - 14;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(71, 85, 105);
+  doc.text("Subtotal", col1, finalY, { align: "right" });
+  doc.text(`${curr}${subtotal.toFixed(2)}`, col2, finalY, { align: "right" });
+
+  if (taxRate > 0) {
+    doc.text(`Tax (${taxRate}%)`, col1, finalY + 7, { align: "right" });
+    doc.text(`${curr}${tax.toFixed(2)}`, col2, finalY + 7, { align: "right" });
+  }
+
+  const totalY = finalY + (taxRate > 0 ? 16 : 8);
+  doc.setFillColor(15, 23, 42);
+  doc.roundedRect(col1 - 20, totalY - 6, 82, 14, 2, 2, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text("TOTAL", col1 - 4, totalY + 3, { align: "right" });
+  doc.text(`${curr}${total.toFixed(2)}`, col2, totalY + 3, { align: "right" });
+
+  if (invoice.notes) {
+    const noteY = totalY + 20;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(71, 85, 105);
+    doc.text("NOTES", 14, noteY);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    const noteLines = doc.splitTextToSize(invoice.notes, pageW - 28);
+    doc.text(noteLines, 14, noteY + 5);
+  }
+
+  doc.setFillColor(248, 250, 252);
+  doc.rect(0, doc.internal.pageSize.getHeight() - 18, pageW, 18, "F");
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(148, 163, 184);
+  doc.text("Generated by Billsimp · billsimp.app", pageW / 2, doc.internal.pageSize.getHeight() - 7, { align: "center" });
+
+  doc.save(`Invoice-${invoice.invoiceNumber}.pdf`);
+}
+
+export function generateQuotationPDF(quotation, client, companyName = "Billsimp") {
+  const doc = new jsPDF();
+  const pageW = doc.internal.pageSize.getWidth();
+
+  doc.setFillColor(5, 46, 22);
+  doc.rect(0, 0, pageW, 45, "F");
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(22);
+  doc.setTextColor(255, 255, 255);
+  doc.text(companyName.toUpperCase(), 14, 20);
+
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(134, 239, 172);
+  doc.text("QUOTATION", 14, 30);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(134, 239, 172);
+  doc.text(`#${quotation.quotationNumber}`, pageW - 14, 20, { align: "right" });
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(134, 239, 172);
+  doc.text(`Date: ${quotation.date}`, pageW - 14, 28, { align: "right" });
+  doc.text(`Valid Until: ${quotation.validUntil || "—"}`, pageW - 14, 35, { align: "right" });
+
+  doc.setTextColor(15, 23, 42);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text("PREPARED FOR", 14, 58);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  doc.text(client?.name || quotation.clientName || "—", 14, 66);
+  doc.setFontSize(9);
+  doc.setTextColor(71, 85, 105);
+  let yPos = 72;
+  if (client?.company) { doc.text(client.company, 14, yPos); yPos += 6; }
+  if (client?.email)   { doc.text(client.email,   14, yPos); yPos += 6; }
+
+  const items = quotation.items || [];
+  const tableStart = Math.max(yPos + 8, 100);
+
+  autoTable(doc, {
+    startY: tableStart,
+    head: [["#", "Description", "Qty", "Unit Price", "Total"]],
+    body: items.map((item, i) => [
+      i + 1,
+      item.description,
+      item.quantity,
+      `${quotation.currency || "$"}${parseFloat(item.price).toFixed(2)}`,
+      `${quotation.currency || "$"}${(parseFloat(item.quantity) * parseFloat(item.price)).toFixed(2)}`,
+    ]),
+    headStyles: { fillColor: [5, 46, 22], textColor: [255,255,255], fontStyle: "bold", fontSize: 9 },
+    bodyStyles: { fontSize: 9, textColor: [30, 41, 59] },
+    alternateRowStyles: { fillColor: [240, 253, 244] },
+    columnStyles: {
+      0: { cellWidth: 10, halign: "center" },
+      2: { halign: "center", cellWidth: 20 },
+      3: { halign: "right",  cellWidth: 30 },
+      4: { halign: "right",  cellWidth: 30 },
+    },
+  });
+
+  const finalY   = doc.lastAutoTable.finalY + 8;
+  const subtotal = items.reduce((s, i) => s + parseFloat(i.quantity) * parseFloat(i.price), 0);
+  const curr     = quotation.currency || "$";
+  const col2     = pageW - 14;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setFillColor(5, 46, 22);
+  doc.roundedRect(col2 - 100, finalY - 6, 102, 14, 2, 2, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.text("TOTAL ESTIMATE", col2 - 60, finalY + 3, { align: "right" });
+  doc.text(`${curr}${subtotal.toFixed(2)}`, col2, finalY + 3, { align: "right" });
+
+  doc.setFillColor(248, 250, 252);
+  doc.rect(0, doc.internal.pageSize.getHeight() - 18, pageW, 18, "F");
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(148, 163, 184);
+  doc.text("Generated by Billsimp · billsimp.app", pageW / 2, doc.internal.pageSize.getHeight() - 7, { align: "center" });
+
+  doc.save(`Quotation-${quotation.quotationNumber}.pdf`);
+}
