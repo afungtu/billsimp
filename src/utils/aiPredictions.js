@@ -189,7 +189,7 @@ export function generateInsights(prediction, monthlyData, topClients) {
     insights.push({
       icon:  "📅",
       color: "blue",
-      text:  `Your average monthly revenue is <strong>$${Math.round(avg).toLocaleString()}</strong>. Use this as your monthly performance target.`,
+      text:  `Your average monthly revenue is <strong>XAF ${Math.round(avg).toLocaleString()}</strong>. Use this as your monthly performance target.`,
     });
   }
 

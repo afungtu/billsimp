@@ -2,14 +2,6 @@
 // ═══════════════════════════════════════════════════════════════
 // KA PILLAR 4 — Construction Technologies: AI Integration
 // KA PILLAR 3 — Integration: React + Firebase + Recharts + AI
-//
-// This file ONLY handles:
-//   1. Loading data from Firebase
-//   2. Calling the AI functions
-//   3. Displaying results on screen
-//
-// All styles are in: src/styles/analytics.css
-// All AI math is in: src/utils/aiPredictions.js
 // ═══════════════════════════════════════════════════════════════
 
 import React, { Component, useEffect, useState } from "react";
@@ -41,35 +33,43 @@ import { formatCurrency } from "../utils/helpers";
 
 import "../styles/analytics.css";
 
-// ── Chart color constants ───────────────────────────────────────
-// IMPORTANT: recharts renders inside SVG. CSS variables (var(--x))
-// do NOT resolve inside SVG attributes on mobile browsers.
-// Always use hardcoded hex values here — they match global.css tokens.
+// ── Currency symbol used throughout this page ───────────────────
+const CUR = "XAF ";
+
+// ── Chart colors (hardcoded hex — CSS vars don't work in SVG) ───
 const CH = {
-  border:      "#1e2d4a",   // --border
-  borderLight: "#253352",   // --border-light
-  textMuted:   "#4d6380",   // --text-muted
-  blue:        "#3b82f6",   // --accent
-  green:       "#10b981",   // --success
-  purple:      "#8b5cf6",   // --purple
-  amber:       "#f59e0b",   // --warning
-  danger:      "#ef4444",   // --danger
+  border:      "#1e2d4a",
+  borderLight: "#253352",
+  textMuted:   "#4d6380",
+  blue:        "#3b82f6",
+  green:       "#10b981",
+  purple:      "#8b5cf6",
+  amber:       "#f59e0b",
+  danger:      "#ef4444",
 };
 
+// ── Mobile detection hook ───────────────────────────────────────
+// Returns true when screen width is below 700px.
+// Used to skip recharts SVG on mobile (SVG crashes on some phones).
+function useIsMobile() {
+  const [mobile, setMobile] = useState(false);
+  useEffect(() => {
+    function check() { setMobile(window.innerWidth < 700); }
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+  return mobile;
+}
 
 // ── Error Boundary ──────────────────────────────────────────────
-// Catches any render crash and shows a message instead of blank screen.
 class AnalyticsErrorBoundary extends Component {
   constructor(props) {
     super(props);
     this.state = { hasError: false, error: null };
   }
-  static getDerivedStateFromError(error) {
-    return { hasError: true, error };
-  }
-  componentDidCatch(error, info) {
-    console.error("Analytics render crash:", error, info);
-  }
+  static getDerivedStateFromError(error) { return { hasError: true, error }; }
+  componentDidCatch(error, info) { console.error("Analytics crash:", error, info); }
   render() {
     if (this.state.hasError) {
       return (
@@ -80,13 +80,10 @@ class AnalyticsErrorBoundary extends Component {
               Analytics failed to render
             </div>
             <div style={{ fontSize: 13, color: "#8fa3c0", marginBottom: 20, maxWidth: 400, margin: "0 auto 20px" }}>
-              {this.state.error?.message || "An unexpected error occurred while building the charts."}
+              {this.state.error?.message || "An unexpected error occurred."}
             </div>
-            <button
-              className="btn btn-primary"
-              onClick={() => { this.setState({ hasError: false }); window.location.reload(); }}
-            >
-              Reload Analytics
+            <button className="btn btn-primary" onClick={() => window.location.reload()}>
+              Reload
             </button>
           </div>
         </AppLayout>
@@ -96,7 +93,6 @@ class AnalyticsErrorBoundary extends Component {
   }
 }
 
-
 // ── Custom tooltip ──────────────────────────────────────────────
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
@@ -105,35 +101,65 @@ function ChartTooltip({ active, payload, label }) {
       <p className="chart-tooltip-label">{label}</p>
       {payload.map((p, i) => (
         <p key={i} className="chart-tooltip-value" style={{ color: p.color }}>
-          {p.name}: ${(p.value || 0).toLocaleString()}
+          {p.name}: {CUR}{(p.value || 0).toLocaleString()}
         </p>
       ))}
     </div>
   );
 }
 
+// ── Mobile chart replacement ────────────────────────────────────
+// Simple CSS-only bars — no SVG, no recharts, works on all phones.
+function MobileBarList({ data, valueKey, labelKey, colorKey, formatVal }) {
+  if (!data || data.length === 0) return (
+    <p style={{ color: "#4d6380", fontSize: 13, padding: "16px 0" }}>No data yet.</p>
+  );
+  const max = Math.max(...data.map((d) => Math.abs(d[valueKey] || 0)), 1);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {data.map((d, i) => {
+        const val   = d[valueKey] || 0;
+        const pct   = Math.abs(val / max) * 100;
+        const color = colorKey ? d[colorKey] : (val >= 0 ? CH.green : CH.danger);
+        return (
+          <div key={i}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4, color: "#8fa3c0" }}>
+              <span>{d[labelKey]}</span>
+              <span style={{ color, fontWeight: 600 }}>
+                {formatVal ? formatVal(val) : val}
+              </span>
+            </div>
+            <div style={{ height: 8, background: "#1e2d4a", borderRadius: 4, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 4, transition: "width 0.4s ease" }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
-// ── Main analytics page ─────────────────────────────────────────
+
+// ── Main analytics content ──────────────────────────────────────
 function AnalyticsContent() {
   const { currentUser } = useAuth();
+  const isMobile = useIsMobile();
 
-  const [invoices, setInvoices] = useState([]);
-  const [loading,  setLoading]  = useState(true);
-
-  const [monthlyData,      setMonthlyData]      = useState([]);
-  const [prediction,       setPrediction]        = useState(null);
-  const [topClients,       setTopClients]        = useState([]);
-  const [insights,         setInsights]          = useState([]);
-  const [statusData,       setStatusData]        = useState([]);
-  const [forecastData,     setForecastData]      = useState([]);
-  const [growthRates,      setGrowthRates]       = useState([]);
-  const [paymentBehavior,  setPaymentBehavior]   = useState([]);
-  const [serviceBreakdown, setServiceBreakdown]  = useState([]);
-  const [loadError,        setLoadError]         = useState(null);
+  const [invoices,        setInvoices]        = useState([]);
+  const [loading,         setLoading]         = useState(true);
+  const [monthlyData,     setMonthlyData]     = useState([]);
+  const [prediction,      setPrediction]      = useState(null);
+  const [topClients,      setTopClients]      = useState([]);
+  const [insights,        setInsights]        = useState([]);
+  const [statusData,      setStatusData]      = useState([]);
+  const [forecastData,    setForecastData]    = useState([]);
+  const [growthRates,     setGrowthRates]     = useState([]);
+  const [paymentBehavior, setPaymentBehavior] = useState([]);
+  const [serviceBreakdown,setServiceBreakdown]= useState([]);
+  const [loadError,       setLoadError]       = useState(null);
 
   useEffect(() => {
     if (!currentUser?.uid) return;
-
     async function load() {
       setLoading(true);
       setLoadError(null);
@@ -142,7 +168,6 @@ function AnalyticsContent() {
           getInvoices(currentUser.uid),
           getClients(currentUser.uid),
         ]);
-
         setInvoices(inv);
 
         const monthly = groupRevenueByMonth(inv);
@@ -154,8 +179,7 @@ function AnalyticsContent() {
         const top = getTopClients(inv, cl, 5);
         setTopClients(top);
 
-        const ins = generateInsights(pred, monthly, top);
-        setInsights(ins);
+        setInsights(generateInsights(pred, monthly, top));
 
         const count = { paid: 0, pending: 0, overdue: 0, draft: 0 };
         inv.forEach((i) => { if (count[i.status] !== undefined) count[i.status]++; });
@@ -181,16 +205,11 @@ function AnalyticsContent() {
     load();
   }, [currentUser?.uid]);
 
-  // Computed KPI values
-  const totalRevenue = invoices
-    .filter((i) => i.status === "paid")
-    .reduce((s, i) => s + (parseFloat(i.total) || 0), 0);
-
-  const totalBilled = invoices.reduce((s, i) => s + (parseFloat(i.total) || 0), 0);
+  const totalRevenue   = invoices.filter((i) => i.status === "paid").reduce((s, i) => s + (parseFloat(i.total) || 0), 0);
+  const totalBilled    = invoices.reduce((s, i) => s + (parseFloat(i.total) || 0), 0);
   const collectionRate = totalBilled > 0 ? Math.round((totalRevenue / totalBilled) * 100) : 0;
-  const avgInvoice = invoices.length > 0 ? totalBilled / invoices.length : 0;
+  const avgInvoice     = invoices.length > 0 ? totalBilled / invoices.length : 0;
 
-  // ── Loading skeleton ──────────────────────────────────────────
   if (loading) {
     return (
       <AppLayout title="Analytics & AI">
@@ -203,24 +222,13 @@ function AnalyticsContent() {
     );
   }
 
-  // ── Firebase / Firestore error ────────────────────────────────
   if (loadError) {
     return (
       <AppLayout title="Analytics & AI">
         <div style={{ padding: "40px 0" }}>
           <div className="alert alert-error" style={{ maxWidth: 600 }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10"/>
-              <line x1="12" y1="8" x2="12" y2="12"/>
-              <line x1="12" y1="16" x2="12.01" y2="16"/>
-            </svg>
-            <div>
-              <strong>Analytics failed to load</strong>
-              <div style={{ fontSize: 12, marginTop: 4, opacity: 0.85 }}>{loadError}</div>
-              <div style={{ fontSize: 12, marginTop: 4, opacity: 0.7 }}>
-                If this says "index" — open Firebase Console → Firestore → Indexes to create the missing index.
-              </div>
-            </div>
+            <strong>Analytics failed to load</strong>
+            <div style={{ fontSize: 12, marginTop: 4 }}>{loadError}</div>
           </div>
           <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => window.location.reload()}>
             Retry
@@ -230,13 +238,12 @@ function AnalyticsContent() {
     );
   }
 
-  // ── Divider index for forecast chart ─────────────────────────
   const forecastStartIdx = forecastData.findIndex((d) => d.isForecast);
 
   return (
     <AppLayout title="Analytics & AI">
 
-      {/* ── Intro Banner ────────────────────────────────────── */}
+      {/* ── Intro Banner ─────────────────────────────────── */}
       <div className="analytics-intro">
         <div className="analytics-intro-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -252,7 +259,7 @@ function AnalyticsContent() {
         </div>
       </div>
 
-      {/* ── KPI Cards ───────────────────────────────────────── */}
+      {/* ── KPI Cards ────────────────────────────────────── */}
       <div className="analytics-kpi-grid">
         <div className="stat-card blue">
           <div className="stat-header">
@@ -264,7 +271,7 @@ function AnalyticsContent() {
               </svg>
             </div>
           </div>
-          <div className="stat-value">{formatCurrency(totalRevenue)}</div>
+          <div className="stat-value">{formatCurrency(totalRevenue, CUR)}</div>
           <div className="stat-sub">Collected from paid invoices</div>
         </div>
 
@@ -291,7 +298,7 @@ function AnalyticsContent() {
               </svg>
             </div>
           </div>
-          <div className="stat-value">{formatCurrency(avgInvoice)}</div>
+          <div className="stat-value">{formatCurrency(avgInvoice, CUR)}</div>
           <div className="stat-sub">Average invoice value</div>
         </div>
 
@@ -312,34 +319,40 @@ function AnalyticsContent() {
         </div>
       </div>
 
-      {/* ── Revenue + Status Charts ──────────────────────────── */}
+      {/* ── Revenue + Status Charts ───────────────────────── */}
       <div className="analytics-charts-grid">
         <div className="chart-card">
           <div className="chart-card-header">
             <div className="chart-card-title">Revenue Over Time</div>
-            <div className="chart-card-subtitle">Monthly billed vs paid — data mining visualization</div>
+            <div className="chart-card-subtitle">Monthly billed vs paid</div>
           </div>
           <div className="chart-body">
             {monthlyData.length === 0 ? (
               <div className="chart-no-data">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>
-                </svg>
-                <span>No monthly data yet.<br/>Create invoices across different months.</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+                <span>No monthly data yet. Create invoices across different months.</span>
               </div>
+            ) : isMobile ? (
+              /* ── Mobile: CSS bars instead of SVG chart ── */
+              <MobileBarList
+                data={monthlyData}
+                labelKey="month"
+                valueKey="total"
+                formatVal={(v) => `${CUR}${v.toLocaleString()}`}
+              />
             ) : (
               <ResponsiveContainer width="100%" height={220} minWidth={0}>
                 <AreaChart data={monthlyData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={CH.border} vertical={false} />
                   <XAxis dataKey="month" tick={{ fill: CH.textMuted, fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: CH.textMuted, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} />
+                  <YAxis tick={{ fill: CH.textMuted, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
                   <Tooltip content={<ChartTooltip />} />
                   <Area type="monotone" dataKey="total" name="Billed" stroke={CH.blue}  fill="rgba(59,130,246,0.12)" strokeWidth={2} />
                   <Area type="monotone" dataKey="paid"  name="Paid"   stroke={CH.green} fill="rgba(16,185,129,0.10)" strokeWidth={2} />
                 </AreaChart>
               </ResponsiveContainer>
             )}
-            {monthlyData.length > 0 && (
+            {monthlyData.length > 0 && !isMobile && (
               <div className="chart-legend">
                 <span className="chart-legend-item"><span className="chart-legend-dot blue"/>Billed</span>
                 <span className="chart-legend-item"><span className="chart-legend-dot green"/>Paid</span>
@@ -356,12 +369,17 @@ function AnalyticsContent() {
           <div className="chart-body">
             {invoices.length === 0 ? (
               <div className="chart-no-data">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <rect x="3" y="3" width="18" height="18" rx="2"/>
-                  <path d="M8 12h8M8 8h8M8 16h4"/>
-                </svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 12h8M8 8h8M8 16h4"/></svg>
                 <span>No invoices to analyze yet.</span>
               </div>
+            ) : isMobile ? (
+              <MobileBarList
+                data={statusData}
+                labelKey="name"
+                valueKey="value"
+                colorKey="color"
+                formatVal={(v) => `${v} invoices`}
+              />
             ) : (
               <ResponsiveContainer width="100%" height={220} minWidth={0}>
                 <BarChart data={statusData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
@@ -386,7 +404,7 @@ function AnalyticsContent() {
         </div>
       </div>
 
-      {/* ── AI Prediction Panel ──────────────────────────────── */}
+      {/* ── AI Prediction Panel ───────────────────────────── */}
       {prediction && (
         <div className="ai-panel">
           <div className="ai-panel-header">
@@ -399,37 +417,32 @@ function AnalyticsContent() {
             </div>
             <div className="ai-panel-title">Financial Prediction — Next Month</div>
           </div>
-
           <div className="ai-panel-body">
             <div className="prediction-grid">
               <div className="prediction-box">
                 <div className="prediction-box-label">Predicted Revenue</div>
                 <div className={`prediction-box-value ${prediction.trend}`}>
-                  {formatCurrency(prediction.predicted)}
+                  {formatCurrency(prediction.predicted, CUR)}
                 </div>
                 {prediction.monthsAnalyzed >= 2 && (
                   <span className={`prediction-box-change ${prediction.trend === "down" ? "down" : "up"}`}>
-                    {prediction.trend === "up" ? "▲" : prediction.trend === "down" ? "▼" : "→"}{" "}
-                    {Math.abs(prediction.growthPct)}%
+                    {prediction.trend === "up" ? "▲" : prediction.trend === "down" ? "▼" : "→"} {Math.abs(prediction.growthPct)}%
                   </span>
                 )}
               </div>
-
               <div className="prediction-box">
                 <div className="prediction-box-label">Monthly Growth Rate</div>
                 <div className={`prediction-box-value ${prediction.slope >= 0 ? "up" : "down"}`}>
-                  {prediction.slope >= 0 ? "+" : ""}{formatCurrency(prediction.avgMonthlyGrowth || 0)}
+                  {prediction.slope >= 0 ? "+" : ""}{formatCurrency(prediction.avgMonthlyGrowth || 0, CUR)}
                 </div>
                 <span className="prediction-box-note">per month on average</span>
               </div>
-
               <div className="prediction-box">
                 <div className="prediction-box-label">Data Points</div>
                 <div className="prediction-box-value neutral">{prediction.monthsAnalyzed}</div>
                 <span className="prediction-box-note">months analyzed</span>
               </div>
             </div>
-
             <div className="ai-insights">
               {insights.map((ins, i) => (
                 <div className="ai-insight" key={i}>
@@ -442,20 +455,16 @@ function AnalyticsContent() {
         </div>
       )}
 
-      {/* ── Top Clients Table ────────────────────────────────── */}
+      {/* ── Top Clients Table ─────────────────────────────── */}
       <div className="top-clients-section">
         <div className="card-header">
           <span className="card-title">Top Clients by Revenue</span>
           <span className="card-header-sub">Data mining — client value analysis</span>
         </div>
-
         {topClients.length === 0 ? (
           <div className="empty-state">
             <div className="empty-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                <circle cx="9" cy="7" r="4"/>
-              </svg>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
             </div>
             <p className="empty-title">No client data yet</p>
             <p className="empty-text">Create invoices to see your top clients here.</p>
@@ -464,13 +473,11 @@ function AnalyticsContent() {
           <div className="table-wrap" style={{ border: "none", borderRadius: 0 }}>
             <table>
               <thead>
-                <tr>
-                  <th>#</th><th>Client</th><th>Invoices</th><th>Total Billed</th><th>Total Paid</th><th>Revenue Share</th>
-                </tr>
+                <tr><th>#</th><th>Client</th><th>Invoices</th><th>Total Billed</th><th>Total Paid</th><th>Share</th></tr>
               </thead>
               <tbody>
                 {topClients.map((c, i) => {
-                  const share = totalBilled > 0 ? (c.total / totalBilled) * 100 : 0;
+                  const share   = totalBilled > 0 ? (c.total / totalBilled) * 100 : 0;
                   const initial = (c.clientName || "?")[0].toUpperCase();
                   return (
                     <tr key={c.clientId || i}>
@@ -482,8 +489,8 @@ function AnalyticsContent() {
                         </div>
                       </td>
                       <td>{c.count}</td>
-                      <td className="money-cell">{formatCurrency(c.total)}</td>
-                      <td className="money-cell paid">{formatCurrency(c.paid)}</td>
+                      <td className="money-cell">{formatCurrency(c.total, CUR)}</td>
+                      <td className="money-cell paid">{formatCurrency(c.paid, CUR)}</td>
                       <td>
                         <div className="share-bar-wrap">
                           <div className="share-bar-track">
@@ -501,38 +508,39 @@ function AnalyticsContent() {
         )}
       </div>
 
-      {/* ── Revenue Forecast Chart ───────────────────────────── */}
+      {/* ── Revenue Forecast Chart ────────────────────────── */}
       <div className="chart-card" style={{ marginBottom: 24, marginTop: 24 }}>
         <div className="chart-card-header">
           <div className="chart-card-title">Revenue Forecast — Next 3 Months</div>
-          <div className="chart-card-subtitle">
-            Linear regression model · dashed line = AI prediction
-          </div>
+          <div className="chart-card-subtitle">Linear regression · dashed = AI prediction</div>
         </div>
         <div className="chart-body">
           {forecastData.length < 2 ? (
             <div className="chart-no-data">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>
-              </svg>
-              <span>Need at least 2 months of data to generate a forecast.</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+              <span>Need at least 2 months of data to forecast.</span>
             </div>
+          ) : isMobile ? (
+            <MobileBarList
+              data={forecastData}
+              labelKey="month"
+              valueKey={forecastData[0]?.actual !== undefined ? "actual" : "forecast"}
+              formatVal={(v) => v ? `${CUR}${v.toLocaleString()}` : "—"}
+            />
           ) : (
             <>
               <ResponsiveContainer width="100%" height={240} minWidth={0}>
                 <ComposedChart data={forecastData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={CH.border} vertical={false} />
                   <XAxis dataKey="month" tick={{ fill: CH.textMuted, fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: CH.textMuted, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+                  <YAxis tick={{ fill: CH.textMuted, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
                   <Tooltip content={({ active, payload, label }) =>
                     active && payload?.length ? (
                       <div className="chart-tooltip">
-                        <p className="chart-tooltip-label">
-                          {label}{payload[0]?.payload?.isForecast ? " (forecast)" : ""}
-                        </p>
+                        <p className="chart-tooltip-label">{label}{payload[0]?.payload?.isForecast ? " (forecast)" : ""}</p>
                         {payload.map((p, i) => (
                           <p key={i} className="chart-tooltip-value" style={{ color: p.color }}>
-                            {p.name}: ${(p.value || 0).toLocaleString()}
+                            {p.name}: {CUR}{(p.value || 0).toLocaleString()}
                           </p>
                         ))}
                       </div>
@@ -551,15 +559,15 @@ function AnalyticsContent() {
                 </ComposedChart>
               </ResponsiveContainer>
               <div className="chart-legend">
-                <span className="chart-legend-item"><span className="chart-legend-dot blue"/>Actual Revenue</span>
-                <span className="chart-legend-item"><span className="chart-legend-dot purple"/>Forecasted Revenue</span>
+                <span className="chart-legend-item"><span className="chart-legend-dot blue"/>Actual</span>
+                <span className="chart-legend-item"><span className="chart-legend-dot purple"/>Forecasted</span>
               </div>
             </>
           )}
         </div>
       </div>
 
-      {/* ── Monthly Growth Rate Chart ────────────────────────── */}
+      {/* ── Monthly Growth Rates ──────────────────────────── */}
       {growthRates.length > 0 && (
         <div className="chart-card" style={{ marginBottom: 24 }}>
           <div className="chart-card-header">
@@ -567,47 +575,52 @@ function AnalyticsContent() {
             <div className="chart-card-subtitle">Income trend analysis — % change each month</div>
           </div>
           <div className="chart-body">
-            <ResponsiveContainer width="100%" height={200} minWidth={0}>
-              <BarChart data={growthRates} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={CH.border} vertical={false} />
-                <XAxis dataKey="month" tick={{ fill: CH.textMuted, fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: CH.textMuted, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}%`} />
-                <Tooltip content={({ active, payload, label }) =>
-                  active && payload?.length ? (
-                    <div className="chart-tooltip">
-                      <p className="chart-tooltip-label">{label}</p>
-                      <p className="chart-tooltip-value" style={{ color: payload[0]?.value >= 0 ? CH.green : CH.danger }}>
-                        Growth: {payload[0]?.value >= 0 ? "+" : ""}{payload[0]?.value}%
-                      </p>
-                    </div>
-                  ) : null
-                } />
-                <ReferenceLine y={0} stroke={CH.borderLight} />
-                <Bar dataKey="growth" name="Growth %" radius={[4, 4, 0, 0]}>
-                  {growthRates.map((entry, i) => (
-                    <Cell key={i} fill={entry.growth >= 0 ? CH.green : CH.danger} fillOpacity={0.8} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            {isMobile ? (
+              <MobileBarList
+                data={growthRates}
+                labelKey="month"
+                valueKey="growth"
+                formatVal={(v) => `${v >= 0 ? "+" : ""}${v}%`}
+              />
+            ) : (
+              <ResponsiveContainer width="100%" height={200} minWidth={0}>
+                <BarChart data={growthRates} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={CH.border} vertical={false} />
+                  <XAxis dataKey="month" tick={{ fill: CH.textMuted, fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: CH.textMuted, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}%`} />
+                  <Tooltip content={({ active, payload, label }) =>
+                    active && payload?.length ? (
+                      <div className="chart-tooltip">
+                        <p className="chart-tooltip-label">{label}</p>
+                        <p className="chart-tooltip-value" style={{ color: payload[0]?.value >= 0 ? CH.green : CH.danger }}>
+                          Growth: {payload[0]?.value >= 0 ? "+" : ""}{payload[0]?.value}%
+                        </p>
+                      </div>
+                    ) : null
+                  } />
+                  <ReferenceLine y={0} stroke={CH.borderLight} />
+                  <Bar dataKey="growth" radius={[4, 4, 0, 0]}>
+                    {growthRates.map((entry, i) => (
+                      <Cell key={i} fill={entry.growth >= 0 ? CH.green : CH.danger} fillOpacity={0.8} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
       )}
 
-      {/* ── Client Payment Behaviour Table ──────────────────── */}
+      {/* ── Client Payment Behaviour ──────────────────────── */}
       <div className="top-clients-section" style={{ marginBottom: 24 }}>
         <div className="card-header">
           <span className="card-title">Client Payment Behaviour</span>
-          <span className="card-header-sub">Data mining — reliability analysis per client</span>
+          <span className="card-header-sub">Data mining — reliability per client</span>
         </div>
-
         {paymentBehavior.length === 0 ? (
           <div className="empty-state">
             <div className="empty-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                <circle cx="9" cy="7" r="4"/>
-              </svg>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
             </div>
             <p className="empty-title">No behaviour data yet</p>
             <p className="empty-text">Create invoices to analyse client payment patterns.</p>
@@ -616,14 +629,7 @@ function AnalyticsContent() {
           <div className="table-wrap" style={{ border: "none", borderRadius: 0 }}>
             <table>
               <thead>
-                <tr>
-                  <th>Client</th>
-                  <th>Invoices</th>
-                  <th>Paid</th>
-                  <th>Overdue</th>
-                  <th>Payment Rate</th>
-                  <th>Rating</th>
-                </tr>
+                <tr><th>Client</th><th>Invoices</th><th>Paid</th><th>Overdue</th><th>Rate</th><th>Rating</th></tr>
               </thead>
               <tbody>
                 {paymentBehavior.map((c, i) => {
@@ -653,9 +659,7 @@ function AnalyticsContent() {
                           c.rating === "excellent" ? "badge-paid"    :
                           c.rating === "good"      ? "badge-sent"    :
                           c.rating === "fair"      ? "badge-pending" : "badge-overdue"
-                        }`}>
-                          {c.rating}
-                        </span>
+                        }`}>{c.rating}</span>
                       </td>
                     </tr>
                   );
@@ -666,23 +670,17 @@ function AnalyticsContent() {
         )}
       </div>
 
-      {/* ── Top Services Table ───────────────────────────────── */}
+      {/* ── Top Services Table ────────────────────────────── */}
       {serviceBreakdown.length > 0 && (
         <div className="top-clients-section">
           <div className="card-header">
             <span className="card-title">Top Services by Revenue</span>
-            <span className="card-header-sub">Data mining — which line items generate the most income</span>
+            <span className="card-header-sub">Data mining — which services earn the most</span>
           </div>
           <div className="table-wrap" style={{ border: "none", borderRadius: 0 }}>
             <table>
               <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Service / Item</th>
-                  <th>Times Invoiced</th>
-                  <th>Total Revenue</th>
-                  <th>Revenue Share</th>
-                </tr>
+                <tr><th>#</th><th>Service / Item</th><th>Times Invoiced</th><th>Total Revenue</th><th>Share</th></tr>
               </thead>
               <tbody>
                 {serviceBreakdown.map((s, i) => {
@@ -693,7 +691,7 @@ function AnalyticsContent() {
                       <td className="rank-number">#{i + 1}</td>
                       <td className="td-main">{s.description}</td>
                       <td>{s.count}</td>
-                      <td className="money-cell">{formatCurrency(s.revenue)}</td>
+                      <td className="money-cell">{formatCurrency(s.revenue, CUR)}</td>
                       <td>
                         <div className="share-bar-wrap">
                           <div className="share-bar-track">
