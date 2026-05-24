@@ -46,15 +46,21 @@ const icons = {
   ),
 };
 
-export default function Sidebar() {
+export default function Sidebar({ isOpen, onClose }) {
   const { currentUser, logout } = useAuth();
   const navigate = useNavigate();
   const [loggingOut, setLoggingOut] = useState(false);
 
   async function handleLogout() {
     setLoggingOut(true);
+    if (onClose) onClose();
     try { await logout(); navigate("/login"); }
     catch (e) { setLoggingOut(false); }
+  }
+
+  // Auto-close sidebar on mobile when a link is tapped
+  function handleNavClick() {
+    if (onClose) onClose();
   }
 
   const initials = currentUser?.displayName
@@ -62,7 +68,7 @@ export default function Sidebar() {
     : currentUser?.email?.[0]?.toUpperCase() || "U";
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar${isOpen ? " open" : ""}`}>
       <div className="sidebar-logo">
         <div className="logo-icon">B</div>
         <span className="logo-text">Bill<span>simp</span></span>
@@ -70,23 +76,23 @@ export default function Sidebar() {
 
       <nav className="sidebar-nav">
         <span className="nav-section-label">Main</span>
-        <NavLink to="/dashboard" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>
+        <NavLink to="/dashboard" onClick={handleNavClick} className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>
           {icons.dashboard} Dashboard
         </NavLink>
-        <NavLink to="/clients" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>
+        <NavLink to="/clients" onClick={handleNavClick} className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>
           {icons.clients} Clients
         </NavLink>
 
         <span className="nav-section-label">Billing</span>
-        <NavLink to="/invoices" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>
+        <NavLink to="/invoices" onClick={handleNavClick} className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>
           {icons.invoices} Invoices
         </NavLink>
-        <NavLink to="/quotations" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>
+        <NavLink to="/quotations" onClick={handleNavClick} className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>
           {icons.quotations} Quotations
         </NavLink>
 
         <span className="nav-section-label">Intelligence</span>
-        <NavLink to="/analytics" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>
+        <NavLink to="/analytics" onClick={handleNavClick} className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>
           {icons.analytics} Analytics & AI
         </NavLink>
       </nav>
