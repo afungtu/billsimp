@@ -61,7 +61,7 @@ export default function Quotations() {
       date: q.date,
       validUntil: q.validUntil || "",
       status: q.status || "draft",
-      currency: q.currency || "$",
+      currency: q.currency || "XAF",
       notes: q.notes || "",
       items: q.items?.length ? q.items : [...defaultItems],
     });
@@ -106,7 +106,7 @@ export default function Quotations() {
         date: new Date().toISOString().split("T")[0],
         dueDate: "",
         status: "pending",
-        currency: quot.currency || "$",
+        currency: quot.currency || "XAF",
         taxRate: 0,
         notes: quot.notes || "",
         items: quot.items,

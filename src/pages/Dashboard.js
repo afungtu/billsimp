@@ -53,10 +53,10 @@ export default function Dashboard() {
       <div className="stats-grid">
         <div className="stat-card blue">
           <div className="stat-header">
-            <span className="stat-label">Total Revenue, "XAF"</span>
+            <span className="stat-label">Total Revenue (XAF)</span>
             <div className="stat-icon blue" style={{ fontSize: "12px", fontWeight: "bold" }}>XAF</div>
           </div>
-          <div className="stat-value">{loading ? <span className="skeleton" style={{ width: 80, height: 28, display: "block" }} /> : formatCurrency(stats.revenue)}</div>
+          <div className="stat-value">{loading ? <span className="skeleton" style={{ width: 80, height: 28, display: "block" }} /> : formatCurrency(stats.revenue, "XAF")}</div>
           <div className="stat-sub">From paid invoices</div>
         </div>
 

@@ -1,10 +1,15 @@
 // src/utils/helpers.js
 
-export function formatCurrency(amount, currency = "$") {
-  return `${currency}${parseFloat(amount || 0).toLocaleString("en-US", {
+export function formatCurrency(amount, currency = "XAF") {
+  const cur = (currency || "XAF").trim();
+  const num = parseFloat(amount || 0).toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  })}`;
+  });
+  // Single-character symbols ($, €, £) go directly before the number.
+  // Multi-character codes (XAF, KES, ZAR) get a space for readability.
+  const space = cur.length > 1 ? " " : "";
+  return `${cur}${space}${num}`;
 }
 
 export function formatDate(dateStr) {

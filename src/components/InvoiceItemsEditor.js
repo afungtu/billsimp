@@ -2,7 +2,7 @@
 import React from "react";
 import { formatCurrency } from "../utils/helpers";
 
-export default function InvoiceItemsEditor({ items, onChange, currency = "$" }) {
+export default function InvoiceItemsEditor({ items, onChange, currency = "XAF" }) {
   function updateItem(index, field, value) {
     const updated = items.map((item, i) =>
       i === index ? { ...item, [field]: value } : item

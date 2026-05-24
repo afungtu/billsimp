@@ -71,6 +71,8 @@ export function generateInvoicePDF(invoice, client, companyName = "Billsimp") {
   const items = invoice.items || [];
   const tableStart = Math.max(yPos + 8, 100);
 
+  const currFmt = (c, v) => { const t = (c || "XAF").trim(); return `${t}${t.length > 1 ? " " : ""}${parseFloat(v || 0).toFixed(2)}`; };
+
   autoTable(doc, {
     startY: tableStart,
     head: [["#", "Description", "Qty", "Unit Price", "Total"]],
@@ -78,8 +80,8 @@ export function generateInvoicePDF(invoice, client, companyName = "Billsimp") {
       i + 1,
       item.description,
       item.quantity,
-      `${invoice.currency || "$"}${parseFloat(item.price).toFixed(2)}`,
-      `${invoice.currency || "$"}${(parseFloat(item.quantity) * parseFloat(item.price)).toFixed(2)}`,
+      currFmt(invoice.currency, item.price),
+      currFmt(invoice.currency, parseFloat(item.quantity) * parseFloat(item.price)),
     ]),
     headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 9 },
     bodyStyles: { fontSize: 9, textColor: [30, 41, 59] },
@@ -98,7 +100,8 @@ export function generateInvoicePDF(invoice, client, companyName = "Billsimp") {
   const taxRate  = parseFloat(invoice.taxRate) || 0;
   const tax      = subtotal * (taxRate / 100);
   const total    = subtotal + tax;
-  const curr     = invoice.currency || "$";
+  const curr     = (invoice.currency || "XAF").trim();
+  const cs       = curr.length > 1 ? " " : "";
 
   const col1 = pageW - 70;
   const col2 = pageW - 14;
@@ -107,11 +110,11 @@ export function generateInvoicePDF(invoice, client, companyName = "Billsimp") {
   doc.setFontSize(9);
   doc.setTextColor(71, 85, 105);
   doc.text("Subtotal", col1, finalY, { align: "right" });
-  doc.text(`${curr}${subtotal.toFixed(2)}`, col2, finalY, { align: "right" });
+  doc.text(`${curr}${cs}${subtotal.toFixed(2)}`, col2, finalY, { align: "right" });
 
   if (taxRate > 0) {
     doc.text(`Tax (${taxRate}%)`, col1, finalY + 7, { align: "right" });
-    doc.text(`${curr}${tax.toFixed(2)}`, col2, finalY + 7, { align: "right" });
+    doc.text(`${curr}${cs}${tax.toFixed(2)}`, col2, finalY + 7, { align: "right" });
   }
 
   const totalY = finalY + (taxRate > 0 ? 16 : 8);
@@ -121,7 +124,7 @@ export function generateInvoicePDF(invoice, client, companyName = "Billsimp") {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
   doc.text("TOTAL", col1 - 4, totalY + 3, { align: "right" });
-  doc.text(`${curr}${total.toFixed(2)}`, col2, totalY + 3, { align: "right" });
+  doc.text(`${curr}${cs}${total.toFixed(2)}`, col2, totalY + 3, { align: "right" });
 
   if (invoice.notes) {
     const noteY = totalY + 20;
@@ -188,6 +191,8 @@ export function generateQuotationPDF(quotation, client, companyName = "Billsimp"
   const items = quotation.items || [];
   const tableStart = Math.max(yPos + 8, 100);
 
+  const qCurrFmt = (c, v) => { const t = (c || "XAF").trim(); return `${t}${t.length > 1 ? " " : ""}${parseFloat(v || 0).toFixed(2)}`; };
+
   autoTable(doc, {
     startY: tableStart,
     head: [["#", "Description", "Qty", "Unit Price", "Total"]],
@@ -195,8 +200,8 @@ export function generateQuotationPDF(quotation, client, companyName = "Billsimp"
       i + 1,
       item.description,
       item.quantity,
-      `${quotation.currency || "$"}${parseFloat(item.price).toFixed(2)}`,
-      `${quotation.currency || "$"}${(parseFloat(item.quantity) * parseFloat(item.price)).toFixed(2)}`,
+      qCurrFmt(quotation.currency, item.price),
+      qCurrFmt(quotation.currency, parseFloat(item.quantity) * parseFloat(item.price)),
     ]),
     headStyles: { fillColor: [5, 46, 22], textColor: [255,255,255], fontStyle: "bold", fontSize: 9 },
     bodyStyles: { fontSize: 9, textColor: [30, 41, 59] },
@@ -211,7 +216,8 @@ export function generateQuotationPDF(quotation, client, companyName = "Billsimp"
 
   const finalY   = doc.lastAutoTable.finalY + 8;
   const subtotal = items.reduce((s, i) => s + parseFloat(i.quantity) * parseFloat(i.price), 0);
-  const curr     = quotation.currency || "$";
+  const curr     = (quotation.currency || "XAF").trim();
+  const cs       = curr.length > 1 ? " " : "";
   const col2     = pageW - 14;
 
   doc.setFont("helvetica", "bold");
@@ -220,7 +226,7 @@ export function generateQuotationPDF(quotation, client, companyName = "Billsimp"
   doc.roundedRect(col2 - 100, finalY - 6, 102, 14, 2, 2, "F");
   doc.setTextColor(255, 255, 255);
   doc.text("TOTAL ESTIMATE", col2 - 60, finalY + 3, { align: "right" });
-  doc.text(`${curr}${subtotal.toFixed(2)}`, col2, finalY + 3, { align: "right" });
+  doc.text(`${curr}${cs}${subtotal.toFixed(2)}`, col2, finalY + 3, { align: "right" });
 
   doc.setFillColor(248, 250, 252);
   doc.rect(0, doc.internal.pageSize.getHeight() - 18, pageW, 18, "F");
